@@ -103,6 +103,9 @@ class WLighter(object):
         self._out_stream = None
         self._accumulated_result = None
 
+        self._line_mentions_dict = {}
+        self._ids_dict = {}
+
 
 
     def annotate_entities(self, out_file, string_return):
@@ -132,10 +135,17 @@ class WLighter(object):
 
     def annotate_all(self, out_file=None, string_return=True):
         self._set_up(out_file, string_return)
+        max_lenght = 0
+        line_counter = 0
         for a_line in self._parser.yield_lines():
-            comments = None
+
+            max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
             entity_mentions = self._look_for_entity_mentions(a_line)
             prop_mentions = self._look_for_prop_mentions(a_line)
+            self.save_
+            self._line_counter += 1
+
+        # TODO MOVE THIS STUFF FROM HERE!
             if len(entity_mentions) != 0 or len(prop_mentions) != 0:
                 comments = self._turn_entities_into_comments(prop_mentions)  # first the props
                 comments += self._turn_entities_into_comments(entity_mentions)
@@ -215,6 +225,8 @@ class WLighter(object):
     def _set_up(self, out_file, string_return):
         if self._file_input is not None and self._file_input == out_file:
             raise ValueError("Please, do not use the same disk path as input and output at a time")
+        self._line_mentions_dict = {}
+        self._ids_dict = {}
         self._look_for_namespaces()
         self._compile_patterns()
         if string_return:
