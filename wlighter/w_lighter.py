@@ -55,6 +55,7 @@ _SHEXC_NAMESPACE_SPEC = re.compile("<[^ <>]+>")
 _NO_LABEL = "(no label available)"
 _ARROW = " --> "
 _SEP_SPACES = "    "
+_MAX_IDS_PER_API_CALL = 49
 
 
 _ENTITIES_API_CALL = "https://www.wikidata.org/w/api.php?action=wbgetentities&props=labels&ids={}&languages={}&format=json"
@@ -109,28 +110,32 @@ class WLighter(object):
 
 
     def annotate_entities(self, out_file, string_return):
-        self._set_up(out_file=out_file, string_return=True)
+        self._set_up(out_file, string_return)
+        max_lenght = 0
+        line_counter = 0
         for a_line in self._parser.yield_lines():
-            comments = None
+            max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
             entity_mentions = self._look_for_entity_mentions(a_line)
-            if len(entity_mentions) != 0:
-                comments += self._turn_entities_into_comments(entity_mentions)
-            self._write_line(line=a_line,
-                             comments=comments)
-        self._tear_down()
-        return self._return_result(string_return)
+            self._save_mentions(line_number=line_counter,
+                                mentions=entity_mentions)
+            line_counter += 1
+
+        self._solve_mentions()
+        return self._produce_result(string_return)
 
     def annotate_properties(self, out_file=None, string_return=True):
         self._set_up(out_file, string_return)
+        max_lenght = 0
+        line_counter = 0
         for a_line in self._parser.yield_lines():
-            comments = None
+            max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
             prop_mentions = self._look_for_prop_mentions(a_line)
-            if len(prop_mentions) != 0:
-                comments = self._turn_entities_into_comments(prop_mentions)
-            self._write_line(line=a_line,
-                             comments=comments)
-        self._tear_down()
-        return self._return_result(string_return)
+            self._save_mentions(line_number=line_counter,
+                                mentions=prop_mentions)
+            line_counter += 1
+
+        self._solve_mentions()
+        return self._produce_result(string_return)
 
 
     def annotate_all(self, out_file=None, string_return=True):
@@ -142,24 +147,40 @@ class WLighter(object):
             max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
             entity_mentions = self._look_for_entity_mentions(a_line)
             prop_mentions = self._look_for_prop_mentions(a_line)
-            self.save_
-            self._line_counter += 1
+            self._save_mentions(line_number=line_counter,
+                                mentions=entity_mentions.union(prop_mentions))
+            line_counter += 1
 
-        # TODO MOVE THIS STUFF FROM HERE!
-            if len(entity_mentions) != 0 or len(prop_mentions) != 0:
-                comments = self._turn_entities_into_comments(prop_mentions)  # first the props
-                comments += self._turn_entities_into_comments(entity_mentions)
-            self._write_line(line=a_line,
-                             comments=comments)
-        self._tear_down()
-        return self._return_result(string_return)
+        self._solve_mentions()
+        return self._produce_result(string_return)
 
-    def _write_line(self, line, comments):
-        target_line = line if comments is None else self._add_comments_to_line(line, comments)
+    def _solve_mentions(self):
+        m_count = 0
+        curr_group = []
+        for a_mention in self._ids_dict:
+            curr_group.append(a_mention)
+            m_count += 1
+            if m_count % _MAX_IDS_PER_API_CALL == 0:
+                self._entities_api_call(curr_group)
+                curr_group = []
+        if len(curr_group) > 0:
+            self._entities_api_call(curr_group)
+
+    def _save_mentions(self, line_number, mentions):
+        if len(mentions) > 0:
+            self._line_mentions_dict[line_number] = mentions
+            for a_mention in mentions:
+                if a_mention not in self._ids_dict:
+                    self._ids_dict[a_mention] = None
+
+    def _write_line(self, line):
         if self._accumulated_result is not None:
-            self._accumulated_result.append(target_line)
+            self._accumulated_result.append(line)
         if self._out_stream is not None:
-            self._out_stream.write(target_line + "\n")
+            self._out_stream.write(line + "\n")
+
+    def _write_line_with_comments(self, line, comments):
+        self._write_line(self._add_comments_to_line(line=line,comments=comments))
 
     def _add_comments_to_line(self, line, comments):
         return line + _SEP_SPACES + "# " + ";".join(comments)
@@ -169,9 +190,23 @@ class WLighter(object):
             self._out_stream.close()
         self._out_stream = None
 
+    def _produce_result(self, string_return):
+        line_counter = 0
+        for a_line in self._parser.yield_lines():
+            if line_counter in self._line_mentions_dict:
+                self._write_line_with_comments(line=a_line,
+                                               comments=self._turn_entities_into_comments(
+                                                   self._line_mentions_dict[line_counter])
+                                               )
+            else:
+                self._write_line(line=a_line)
+            line_counter += 1
+        return self._return_result(string_return)
+
     def _return_result(self, string_return):
         if string_return:
             return "\n".join(self._accumulated_result)
+        # return None
 
 
     def _build_languages_for_api(self):
@@ -189,9 +224,8 @@ class WLighter(object):
             return []
         result = []
         for a_mention in entity_mentions:
-            label = self._solve_entity_label(a_mention)
             result.append(self._turn_id_into_comment(id_wiki=a_mention,
-                                                     label=label))
+                                                     label=self._ids_dict[a_mention]))
         return result
 
 
@@ -200,25 +234,31 @@ class WLighter(object):
                                  _ARROW,
                                  label)
 
-    def _solve_entity_label(self, entity):
-        if entity in self._cache:
-            return self._cache[entity]
-        else:
-            result = self._entity_api_call(entity)
-            self._cache[entity] = result
-            return result
+    # def _solve_entity_label(self, entity):
+    #     if entity in self._cache:
+    #         return self._cache[entity]
+    #     else:
+    #         result = self._entities_api_call(entity)
+    #         self._cache[entity] = result
+    #         return result
 
 
-    def _entity_api_call(self, entity):
-        response = requests.get(_ENTITIES_API_CALL.format(entity,
+    def _entities_api_call(self, entity_goup):
+        response = requests.get(_ENTITIES_API_CALL.format("|".join(entity_goup),
                                                           self._languages_for_api))
         response = response.json()
-        labels = response["entities"][entity]["labels"]
+        for an_entity in entity_goup:
+            self._ids_dict[an_entity] = \
+                self._get_label_from_json_result(labels_entity_json=
+                                                 response["entities"][an_entity]["labels"])
+
+
+    def _get_label_from_json_result(self, labels_entity_json):
         for a_language in self._languages:
-            if a_language in labels:
-                return labels[a_language]["value"]
-        if "en" in labels:
-            return labels["en"]["value"]
+            if a_language in labels_entity_json:
+                return labels_entity_json[a_language]["value"]
+        if "en" in labels_entity_json:
+            return labels_entity_json["en"]["value"]
         return _NO_LABEL
 
 
