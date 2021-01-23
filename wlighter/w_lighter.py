@@ -103,6 +103,7 @@ class WLighter(object):
 
         self._out_stream = None
         self._accumulated_result = None
+        self._chars_till_comment = 0
 
         self._line_mentions_dict = {}
         self._ids_dict = {}
@@ -143,14 +144,15 @@ class WLighter(object):
         max_lenght = 0
         line_counter = 0
         for a_line in self._parser.yield_lines():
-
-            max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
+            if not a_line.startswith("PREFIX "):
+                max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
             entity_mentions = self._look_for_entity_mentions(a_line)
             prop_mentions = self._look_for_prop_mentions(a_line)
             self._save_mentions(line_number=line_counter,
                                 mentions=entity_mentions.union(prop_mentions))
             line_counter += 1
 
+        self._chars_till_comment = max_lenght + 2
         self._solve_mentions()
         return self._produce_result(string_return)
 
@@ -183,7 +185,11 @@ class WLighter(object):
         self._write_line(self._add_comments_to_line(line=line,comments=comments))
 
     def _add_comments_to_line(self, line, comments):
-        return line + _SEP_SPACES + "# " + ";".join(comments)
+
+        return line + self._propper_amount_of_spaces(len(line)) + "# " + ";".join(comments)
+
+    def _propper_amount_of_spaces(self, line_length):
+        return " " * (self._chars_till_comment - line_length)
 
     def _tear_down(self):
         if self._out_stream is not None:
@@ -265,6 +271,7 @@ class WLighter(object):
     def _set_up(self, out_file, string_return):
         if self._file_input is not None and self._file_input == out_file:
             raise ValueError("Please, do not use the same disk path as input and output at a time")
+        self._chars_till_comment = 0
         self._line_mentions_dict = {}
         self._ids_dict = {}
         self._look_for_namespaces()
