@@ -17,7 +17,6 @@ class AbstractParser(object):
         self._raw_input = raw_input
         self._file_input = file_input
 
-
     def yield_prefix_namespace_pairs(self):
         for a_line in self.yield_lines():
             for a_pair in self._yield_prefix_namespace_paris_in_line(a_line):
@@ -48,49 +47,51 @@ class TurtleToyParser(AbstractParser):
     def __init__(self, raw_input, file_input):
         super().__init__(raw_input, file_input)
 
+
 _SHEXC_PREFIX = re.compile("(^| )PREFIX ")
 _SHEXC_PREFIX_SPEC = re.compile("([a-zA-Z]([a-zA-Z0-9\-]*[a-zA-Z0-9]+)?)? *: ")
 _SHEXC_NAMESPACE_SPEC = re.compile("<[^ <>]+>")
 
 _NO_LABEL = "(no label available)"
-_ARROW = " --> "
-_SEP_SPACES = "    "
 _MAX_IDS_PER_API_CALL = 49
 
-
 _ENTITIES_API_CALL = "https://www.wikidata.org/w/api.php?action=wbgetentities&props=labels&ids={}&languages={}&format=json"
+
+
 class ShExCToyParser(AbstractParser):
     def _yield_prefix_namespace_paris_in_line(self, a_line):
         for a_match in re.finditer(_SHEXC_PREFIX, a_line):
             piece = a_line[a_match.end():]
             prefix = re.search(_SHEXC_PREFIX_SPEC, piece)
-            prefix = piece[prefix.start():prefix.end()].replace(":" ,"").strip()  # Remove :
+            prefix = piece[prefix.start():prefix.end()].replace(":", "").strip()  # Remove :
             namespace = re.search(_SHEXC_NAMESPACE_SPEC, a_line[a_match.end(0):])
-            namespace = piece[namespace.start()+1:namespace.end()-1]  # Remove corners
+            namespace = piece[namespace.start() + 1:namespace.end() - 1]  # Remove corners
             yield prefix, namespace
-
 
     def __init__(self, raw_input, file_input):
         super().__init__(raw_input, file_input)
 
 
-
-
 ######## FORMATTERS
+
+_ARROW = " --> "
 
 
 class BaseFormater(object):
 
-    def __init__(self, out_file, string_return, parser, line_mentions_dict):
+    def __init__(self, out_file, string_return, parser, line_mentions_dict, chars_till_comment,
+                 ids_dict):
         self._out_file = out_file
         self._string_return = string_return
         self._parser = parser
         self._line_mentions_dict = line_mentions_dict
+        self._chars_till_comment = chars_till_comment
+        self._ids_dict = ids_dict
 
-        self._accumulated_result = None # TODO DO SMTHING HERE, SETUP
-        self._out_stream = None  # TODO DO SMTHING HERE, SET UP
+        self._accumulated_result = None
+        self._out_stream = None
 
-    def _produce_result(self, string_return):
+    def produce_result(self):
         line_counter = 0
         for a_line in self._parser.yield_lines():
             if line_counter in self._line_mentions_dict:
@@ -101,8 +102,25 @@ class BaseFormater(object):
             else:
                 self._write_line(line=a_line)
             line_counter += 1
-        return self._return_result(string_return)
+        self._tear_down()
+        return self._return_result()
 
+    def set_up(self):
+        if self._string_return:
+            self._accumulated_result = []
+        else:
+            self._accumulated_result = None
+        if self._out_file is not None:
+            self._reset_file(self._out_file)
+            self._out_stream = open(self._out_file, "wa")
+
+    def _tear_down(self):
+        if self._out_file is not None:
+            self._out_stream.close()
+
+    def _reset_file(self, out_file):
+        with open(out_file, "w") as out_stream:
+            out_stream.write("")
 
     def _turn_entities_into_comments(self, entity_mentions):
         if len(entity_mentions) == 0:
@@ -113,9 +131,14 @@ class BaseFormater(object):
                                                      label=self._ids_dict[a_mention]))
         return result
 
-    def _write_line_with_comments(self, line, comments):
-        self._write_line(self._add_comments_to_line(line=line,comments=comments))
+    def _turn_id_into_comment(self, id_wiki, label):
+        return "{} {} {}".format(id_wiki,
+                                 _ARROW,
+                                 label)
 
+    def _write_line_with_comments(self, line, comments):
+        self._write_line(self._add_comments_to_line(line=line,
+                                                    comments=comments))
 
     def _write_line(self, line):
         if self._accumulated_result is not None:
@@ -123,29 +146,67 @@ class BaseFormater(object):
         if self._out_stream is not None:
             self._out_stream.write(line + "\n")
 
-    def _return_result(self, string_return):
-        if string_return:
+    def _return_result(self):
+        if self._string_return:
             return "\n".join(self._accumulated_result)
-        # return None
 
     def _add_comments_to_line(self, line, comments):
-        return line + self._propper_amount_of_spaces(len(line)) + "# " + ";".join(comments)
+        raise NotImplementedError()
 
     def _propper_amount_of_spaces(self, line_length):
-        return " " * (self._chars_till_comment - line_length)  # todo keep doing stuff here
+        return " " * (self._chars_till_comment - line_length)
+
+
+_RDFS_NAMESPACE = "http://www.w3.org/2000/01/rdf-schema#"
 
 
 class RdfsCommentFormatter(BaseFormater):
 
-    def __init__(self, out_file, string_return, parser, line_mentions_dict):
-        super().__init__(out_file, string_return, parser, line_mentions_dict)
+    def __init__(self, out_file, string_return, parser,
+                 line_mentions_dict, chars_till_comment, ids_dict,
+                 namespaces_dict):
+        super().__init__(out_file, string_return, parser, line_mentions_dict, chars_till_comment, ids_dict)
+
+        self._rdfs_prefix = None
+        self._added_rdfs = False
+
+        self._set_rdfs_namespace(namespaces_dict)  # Give a value to the provious atts
+
+    def _set_rdfs_namespace(self, namespaces_dict):
+        if _RDFS_NAMESPACE in namespaces_dict:
+            self._rdfs_prefix = namespaces_dict[_RDFS_NAMESPACE]
+            self._added_rdfs = False
+            return
+        curr_prefixes = namespaces_dict.values()
+        if "rdfs" not in curr_prefixes:
+            self._rdfs_prefix = "rdfs"
+            self._added_rdfs = True
+            return
+        counter = 2
+        candidate = "rdfs" + str(counter)
+        while candidate in curr_prefixes:
+            counter += 1
+            candidate = "rdfs" + str(counter)
+        self._rdfs_prefix = candidate
+        self._added_rdfs = True
+
+    def _add_comments_to_line(self, line, comments):
+        return line + self._propper_amount_of_spaces(len(line)) + '// {}:comment "{}"'.format(self._rdfs_prefix,
+                                                                                              " ; ".join(comments))
+
+    def produce_result(self):
+        if self._added_rdfs:
+            self._write_line("PREFIX {}: <{}>".format(self._rdfs_prefix, _RDFS_NAMESPACE))
+        return super().produce_result()
 
 
 class RawCommentsFormatter(BaseFormater):
 
-    def __init__(self, out_file, string_return, parser, line_mentions_dict):
-        super().__init__(out_file, string_return, parser, line_mentions_dict)
+    def __init__(self, out_file, string_return, parser, line_mentions_dict, chars_till_comment, ids_dict):
+        super().__init__(out_file, string_return, parser, line_mentions_dict, chars_till_comment, ids_dict)
 
+    def _add_comments_to_line(self, line, comments):
+        return line + self._propper_amount_of_spaces(len(line)) + "# " + " ; ".join(comments)
 
 
 class WLighter(object):
@@ -178,61 +239,61 @@ class WLighter(object):
 
         self._cache = {}
 
-        self._out_stream = None
-        self._accumulated_result = None
-        self._chars_till_comment = 0
-
         self._line_mentions_dict = {}
         self._ids_dict = {}
 
-
-
     def annotate_entities(self, out_file, string_return):
-        self._set_up(out_file, string_return)
-        max_lenght = 0
-        line_counter = 0
-        for a_line in self._parser.yield_lines():
-            max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
-            entity_mentions = self._look_for_entity_mentions(a_line)
-            self._save_mentions(line_number=line_counter,
-                                mentions=entity_mentions)
-            line_counter += 1
-
-        self._solve_mentions()
-        return self._produce_result(string_return)
+        return self._base_annotate(out_file=out_file,
+                                   string_return=string_return,
+                                   look_for_mentions_func=self._look_for_entity_mentions)
 
     def annotate_properties(self, out_file=None, string_return=True):
-        self._set_up(out_file, string_return)
-        max_lenght = 0
-        line_counter = 0
-        for a_line in self._parser.yield_lines():
-            max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
-            prop_mentions = self._look_for_prop_mentions(a_line)
-            self._save_mentions(line_number=line_counter,
-                                mentions=prop_mentions)
-            line_counter += 1
-
-        self._solve_mentions()
-        return self._produce_result(string_return)
-
+        return self._base_annotate(out_file=out_file,
+                                   string_return=string_return,
+                                   look_for_mentions_func=self._look_for_prop_mentions)
 
     def annotate_all(self, out_file=None, string_return=True):
-        self._set_up(out_file, string_return)
+        return self._base_annotate(out_file=out_file,
+                                   string_return=string_return,
+                                   look_for_mentions_func=self._look_for_all_mentions)
+
+    def _base_annotate(self, out_file, string_return, look_for_mentions_func):
+        self._set_up(out_file)
         max_lenght = 0
         line_counter = 0
         for a_line in self._parser.yield_lines():
             if not a_line.startswith("PREFIX "):
                 max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
-            entity_mentions = self._look_for_entity_mentions(a_line)
-            prop_mentions = self._look_for_prop_mentions(a_line)
             self._save_mentions(line_number=line_counter,
-                                mentions=entity_mentions.union(prop_mentions))
+                                mentions=look_for_mentions_func(a_line))
             line_counter += 1
 
-        self._chars_till_comment = max_lenght + 2
+        self._set_formatter(out_file, string_return, max_lenght + 2)
         self._solve_mentions()
         return self._formatter.produce_result()
 
+    def _look_for_all_mentions(self, line):
+        entity_mentions = self._look_for_entity_mentions(line)
+        prop_mentions = self._look_for_prop_mentions(line)
+        return entity_mentions.union(prop_mentions)
+
+    def _set_formatter(self, out_file, string_return, max_length):
+        if self._generate_rdfs_comments:
+            self._formatter = RdfsCommentFormatter(out_file=out_file,
+                                                   string_return=string_return,
+                                                   parser=self._parser,
+                                                   line_mentions_dict=self._line_mentions_dict,
+                                                   chars_till_comment=max_length,
+                                                   ids_dict=self._ids_dict,
+                                                   namespaces_dict=self._namespaces)
+        else:
+            self._formatter = RawCommentsFormatter(out_file=out_file,
+                                                   string_return=string_return,
+                                                   parser=self._parser,
+                                                   line_mentions_dict=self._line_mentions_dict,
+                                                   chars_till_comment=max_length,
+                                                   ids_dict=self._ids_dict)
+        self._formatter.set_up()
 
     def _solve_mentions(self):
         m_count = 0
@@ -258,7 +319,6 @@ class WLighter(object):
             self._out_stream.close()
         self._out_stream = None
 
-
     def _build_languages_for_api(self):
         if len(self._languages) == 0:
             return "en"
@@ -267,22 +327,6 @@ class WLighter(object):
             return result
         else:
             return result + "|en"
-
-
-
-    def _turn_id_into_comment(self, id_wiki, label):
-        return "{} {} {}".format(id_wiki,
-                                 _ARROW,
-                                 label)
-
-    # def _solve_entity_label(self, entity):
-    #     if entity in self._cache:
-    #         return self._cache[entity]
-    #     else:
-    #         result = self._entities_api_call(entity)
-    #         self._cache[entity] = result
-    #         return result
-
 
     def _entities_api_call(self, entity_goup):
         response = requests.get(_ENTITIES_API_CALL.format("|".join(entity_goup),
@@ -293,7 +337,6 @@ class WLighter(object):
                 self._get_label_from_json_result(labels_entity_json=
                                                  response["entities"][an_entity]["labels"])
 
-
     def _get_label_from_json_result(self, labels_entity_json):
         for a_language in self._languages:
             if a_language in labels_entity_json:
@@ -302,29 +345,13 @@ class WLighter(object):
             return labels_entity_json["en"]["value"]
         return _NO_LABEL
 
-
-    def _set_up(self, out_file, string_return):
+    def _set_up(self, out_file):
         if self._file_input is not None and self._file_input == out_file:
             raise ValueError("Please, do not use the same disk path as input and output at a time")
-        self._formatter = self._choose_formater(out_file, string_return)
-        self._formatter.set_up()
-        self._chars_till_comment = 0
         self._line_mentions_dict = {}
         self._ids_dict = {}
         self._look_for_namespaces()
         self._compile_patterns()
-        if string_return:
-            self._accumulated_result = []
-        else:
-            self._accumulated_result = None
-        if out_file is not None:
-            self._reset_file(out_file)
-            self._out_stream = open(out_file, "wa")
-
-    def _reset_file(self, out_file):
-        with open(out_file, "w") as out_stream:
-            out_stream.write("")
-
 
     def _look_for_entity_mentions(self, a_line):
         full_mentions = re.findall(self._entity_full_pattern, a_line)
@@ -353,8 +380,6 @@ class WLighter(object):
 
         return set(full_mentions + prefixed_mentions)
 
-
-
     def _extract_id_from_full_uris(self, id_type, mentions_list):
         result = []
         for a_mention in mentions_list:
@@ -369,9 +394,8 @@ class WLighter(object):
             result.append(a_mention[a_mention.rfind(id_type):])
         return result
 
-
     def _compile_patterns(self):
-        if self._entity_full_pattern is None :  # It should mean the rest are None too
+        if self._entity_full_pattern is None:  # It should mean the rest are None too
             self._entity_full_pattern = re.compile("<" + self._namespace_entities + "Q[0-9]+" + ">")
             self._entity_prefixed_pattern = None if self._namespace_entities not in self._namespaces else \
                 re.compile("(?:^| )" + self._namespaces[self._namespace_entities] + ":Q[0-9]+[ ?*+;]")
@@ -389,7 +413,6 @@ class WLighter(object):
             self._namespaces = {}
             for a_prefix, a_namespace in self._parser.yield_prefix_namespace_pairs():
                 self._namespaces[a_namespace] = a_prefix
-
 
     def _choose_parser(self):
         if self._format == _SHEXC_FORMAT:
