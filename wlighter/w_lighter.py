@@ -35,17 +35,38 @@ class AbstractParser(object):
             yield a_line.rstrip()
 
     def _yield_file_lines(self):
-        with open(self._file_input) as in_stream:
+        with open(self._file_input, encoding="utf-8") as in_stream:
             for a_line in in_stream:
                 yield a_line.rstrip()
 
     def _yield_prefix_namespace_paris_in_line(self, a_line):
         raise NotImplementedError()
 
+    def is_prefix_line(self, line):
+        raise NotImplementedError()
+
+
+_TURTLE_PREFIX = re.compile("(^| )@prefix ")
+_TURTLE_PREFIX_SPEC = re.compile("([a-zA-Z]([a-zA-Z0-9\-]*[a-zA-Z0-9]+)?)? *: ")
+_TURTLE_NAMESPACE_SPEC = re.compile("<[^ <>]+>")
 
 class TurtleToyParser(AbstractParser):
+
     def __init__(self, raw_input, file_input):
         super().__init__(raw_input, file_input)
+
+    def _yield_prefix_namespace_paris_in_line(self, a_line):
+        for a_match in re.finditer(_TURTLE_PREFIX, a_line):
+            piece = a_line[a_match.end():]
+            prefix = re.search(_TURTLE_PREFIX_SPEC, piece)
+            prefix = piece[prefix.start():prefix.end()].replace(":", "").strip()  # Remove :
+            namespace = re.search(_TURTLE_NAMESPACE_SPEC, a_line[a_match.end(0):])
+            namespace = piece[namespace.start() + 1:namespace.end() - 1]  # Remove corners
+            yield prefix, namespace
+
+    def is_prefix_line(self, a_line):
+        return a_line.startswith("@prefix ")
+
 
 
 _SHEXC_PREFIX = re.compile("(^| )PREFIX ")
@@ -59,6 +80,10 @@ _ENTITIES_API_CALL = "https://www.wikidata.org/w/api.php?action=wbgetentities&pr
 
 
 class ShExCToyParser(AbstractParser):
+
+    def __init__(self, raw_input, file_input):
+        super().__init__(raw_input, file_input)
+
     def _yield_prefix_namespace_paris_in_line(self, a_line):
         for a_match in re.finditer(_SHEXC_PREFIX, a_line):
             piece = a_line[a_match.end():]
@@ -68,8 +93,8 @@ class ShExCToyParser(AbstractParser):
             namespace = piece[namespace.start() + 1:namespace.end() - 1]  # Remove corners
             yield prefix, namespace
 
-    def __init__(self, raw_input, file_input):
-        super().__init__(raw_input, file_input)
+    def is_prefix_line(self, a_line):
+        return a_line.startswith("PREFIX ")
 
 
 ######## FORMATTERS
@@ -262,7 +287,7 @@ class WLighter(object):
         max_lenght = 0
         line_counter = 0
         for a_line in self._parser.yield_lines():
-            if not a_line.startswith("PREFIX "):
+            if not self._parser.is_prefix_line(a_line):
                 max_lenght = len(a_line) if len(a_line) > max_lenght else max_lenght
             self._save_mentions(line_number=line_counter,
                                 mentions=look_for_mentions_func(a_line))
@@ -358,12 +383,13 @@ class WLighter(object):
         if len(full_mentions) != 0:
             full_mentions = self._extract_id_from_full_uris(id_type="Q",
                                                             mentions_list=full_mentions)
-        prefixed_mentions = re.findall(self._entity_prefixed_pattern, a_line)
-        if len(prefixed_mentions) != 0:
-            prefixed_mentions = self._extract_id_from_prefixed_uris(id_type="Q",
-                                                                    mentions_list=full_mentions)
-
-        return set(full_mentions + prefixed_mentions)
+        if self._entity_prefixed_pattern is not None:
+            prefixed_mentions = re.findall(self._entity_prefixed_pattern, a_line)
+            if len(prefixed_mentions) != 0:
+                prefixed_mentions = self._extract_id_from_prefixed_uris(id_type="Q",
+                                                                        mentions_list=full_mentions)
+            return set(full_mentions + prefixed_mentions)
+        return set(full_mentions)
 
     def _look_for_prop_mentions(self, a_line):
         full_mentions = re.findall(self._prop_direct_full_pattern, a_line)
@@ -372,8 +398,11 @@ class WLighter(object):
             full_mentions = self._extract_id_from_full_uris(id_type="P",
                                                             mentions_list=full_mentions)
 
-        prefixed_mentions = re.findall(self._prop_direct_prefixed_pattern, a_line)
-        prefixed_mentions += re.findall(self._prop_indirect_prefixed_pattern, a_line)
+        prefixed_mentions = []
+        if self._prop_direct_prefixed_pattern is not None:
+            prefixed_mentions += re.findall(self._prop_direct_prefixed_pattern, a_line)
+        if self._prop_indirect_prefixed_pattern is not None:
+            prefixed_mentions += re.findall(self._prop_indirect_prefixed_pattern, a_line)
         if len(prefixed_mentions) != 0:
             prefixed_mentions = self._extract_id_from_prefixed_uris(id_type="P",
                                                                     mentions_list=prefixed_mentions)
@@ -418,4 +447,7 @@ class WLighter(object):
         if self._format == _SHEXC_FORMAT:
             return ShExCToyParser(raw_input=self._raw_input,
                                   file_input=self._file_input)
+        elif self._format == _TURTLE_FORMAT:
+            return TurtleToyParser(raw_input=self._raw_input,
+                                   file_input=self._file_input)
         raise ValueError("Unsupported format: " + self._format)
