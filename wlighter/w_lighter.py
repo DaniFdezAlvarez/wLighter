@@ -74,15 +74,92 @@ class ShExCToyParser(AbstractParser):
         super().__init__(raw_input, file_input)
 
 
+
+
+######## FORMATTERS
+
+
+class BaseFormater(object):
+
+    def __init__(self, out_file, string_return, parser, line_mentions_dict):
+        self._out_file = out_file
+        self._string_return = string_return
+        self._parser = parser
+        self._line_mentions_dict = line_mentions_dict
+
+        self._accumulated_result = None # TODO DO SMTHING HERE, SETUP
+        self._out_stream = None  # TODO DO SMTHING HERE, SET UP
+
+    def _produce_result(self, string_return):
+        line_counter = 0
+        for a_line in self._parser.yield_lines():
+            if line_counter in self._line_mentions_dict:
+                self._write_line_with_comments(line=a_line,
+                                               comments=self._turn_entities_into_comments(
+                                                   self._line_mentions_dict[line_counter])
+                                               )
+            else:
+                self._write_line(line=a_line)
+            line_counter += 1
+        return self._return_result(string_return)
+
+
+    def _turn_entities_into_comments(self, entity_mentions):
+        if len(entity_mentions) == 0:
+            return []
+        result = []
+        for a_mention in entity_mentions:
+            result.append(self._turn_id_into_comment(id_wiki=a_mention,
+                                                     label=self._ids_dict[a_mention]))
+        return result
+
+    def _write_line_with_comments(self, line, comments):
+        self._write_line(self._add_comments_to_line(line=line,comments=comments))
+
+
+    def _write_line(self, line):
+        if self._accumulated_result is not None:
+            self._accumulated_result.append(line)
+        if self._out_stream is not None:
+            self._out_stream.write(line + "\n")
+
+    def _return_result(self, string_return):
+        if string_return:
+            return "\n".join(self._accumulated_result)
+        # return None
+
+    def _add_comments_to_line(self, line, comments):
+        return line + self._propper_amount_of_spaces(len(line)) + "# " + ";".join(comments)
+
+    def _propper_amount_of_spaces(self, line_length):
+        return " " * (self._chars_till_comment - line_length)  # todo keep doing stuff here
+
+
+class RdfsCommentFormatter(BaseFormater):
+
+    def __init__(self, out_file, string_return, parser, line_mentions_dict):
+        super().__init__(out_file, string_return, parser, line_mentions_dict)
+
+
+class RawCommentsFormatter(BaseFormater):
+
+    def __init__(self, out_file, string_return, parser, line_mentions_dict):
+        super().__init__(out_file, string_return, parser, line_mentions_dict)
+
+
+
 class WLighter(object):
 
-    def __init__(self, raw_input=None, file_input=None, format=_SHEXC_FORMAT, languages=None):
+    def __init__(self, raw_input=None, file_input=None, format=_SHEXC_FORMAT, languages=None,
+                 generate_rdfs_comments=False):
         self._raw_input = raw_input
         self._file_input = file_input
         self._format = format
         self._languages = ["en"] if languages is None else languages
+        self._generate_rdfs_comments = generate_rdfs_comments
 
         self._parser = self._choose_parser()
+        self._formatter = None  # Will be Chosen later
 
         self._namespaces = None
 
@@ -154,7 +231,8 @@ class WLighter(object):
 
         self._chars_till_comment = max_lenght + 2
         self._solve_mentions()
-        return self._produce_result(string_return)
+        return self._formatter.produce_result()
+
 
     def _solve_mentions(self):
         m_count = 0
@@ -175,44 +253,10 @@ class WLighter(object):
                 if a_mention not in self._ids_dict:
                     self._ids_dict[a_mention] = None
 
-    def _write_line(self, line):
-        if self._accumulated_result is not None:
-            self._accumulated_result.append(line)
-        if self._out_stream is not None:
-            self._out_stream.write(line + "\n")
-
-    def _write_line_with_comments(self, line, comments):
-        self._write_line(self._add_comments_to_line(line=line,comments=comments))
-
-    def _add_comments_to_line(self, line, comments):
-
-        return line + self._propper_amount_of_spaces(len(line)) + "# " + ";".join(comments)
-
-    def _propper_amount_of_spaces(self, line_length):
-        return " " * (self._chars_till_comment - line_length)
-
     def _tear_down(self):
         if self._out_stream is not None:
             self._out_stream.close()
         self._out_stream = None
-
-    def _produce_result(self, string_return):
-        line_counter = 0
-        for a_line in self._parser.yield_lines():
-            if line_counter in self._line_mentions_dict:
-                self._write_line_with_comments(line=a_line,
-                                               comments=self._turn_entities_into_comments(
-                                                   self._line_mentions_dict[line_counter])
-                                               )
-            else:
-                self._write_line(line=a_line)
-            line_counter += 1
-        return self._return_result(string_return)
-
-    def _return_result(self, string_return):
-        if string_return:
-            return "\n".join(self._accumulated_result)
-        # return None
 
 
     def _build_languages_for_api(self):
@@ -224,15 +268,6 @@ class WLighter(object):
         else:
             return result + "|en"
 
-
-    def _turn_entities_into_comments(self, entity_mentions):
-        if len(entity_mentions) == 0:
-            return []
-        result = []
-        for a_mention in entity_mentions:
-            result.append(self._turn_id_into_comment(id_wiki=a_mention,
-                                                     label=self._ids_dict[a_mention]))
-        return result
 
 
     def _turn_id_into_comment(self, id_wiki, label):
@@ -271,6 +306,8 @@ class WLighter(object):
     def _set_up(self, out_file, string_return):
         if self._file_input is not None and self._file_input == out_file:
             raise ValueError("Please, do not use the same disk path as input and output at a time")
+        self._formatter = self._choose_formater(out_file, string_return)
+        self._formatter.set_up()
         self._chars_till_comment = 0
         self._line_mentions_dict = {}
         self._ids_dict = {}
