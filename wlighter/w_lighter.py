@@ -256,6 +256,7 @@ class RawCommentsFormatter(BaseFormater):
     def _add_comments_to_line(self, line, comments):
         return line + self._propper_amount_of_spaces(len(line)) + "# " + " ; ".join(comments)
 
+_CLOSING_MENTION_CHARS = ['?','*','+',';',',','.',')',']']
 
 class WLighter(object):
 
@@ -303,7 +304,7 @@ class WLighter(object):
         self._line_mentions_dict = {}
         self._ids_dict = {}
 
-    def annotate_entities(self, out_file, string_return):
+    def annotate_entities(self, out_file=None, string_return=True):
         """
         It annotates just entities
 
@@ -446,7 +447,7 @@ class WLighter(object):
             prefixed_mentions = re.findall(self._entity_prefixed_pattern, a_line)
             if len(prefixed_mentions) != 0:
                 prefixed_mentions = self._extract_id_from_prefixed_uris(id_type="Q",
-                                                                        mentions_list=full_mentions)
+                                                                        mentions_list=prefixed_mentions)
             return set(full_mentions + prefixed_mentions)
         return set(full_mentions)
 
@@ -479,22 +480,25 @@ class WLighter(object):
         result = []
         for a_mention in mentions_list:
             a_mention = a_mention.strip()
+            if a_mention[-1] in _CLOSING_MENTION_CHARS:
+                a_mention = a_mention[:-1]
             result.append(a_mention[a_mention.rfind(id_type):])
         return result
 
     def _compile_patterns(self):
+        # re.compile('(?:^| |\\(|\\[)wd:Q[0-9]+[ ?*+;,.)\\]]')
         if self._entity_full_pattern is None:  # It should mean the rest are None too
             self._entity_full_pattern = re.compile("<" + self._namespace_entities + "Q[0-9]+" + ">")
             self._entity_prefixed_pattern = None if self._namespace_entities not in self._namespaces else \
-                re.compile("(?:^| )" + self._namespaces[self._namespace_entities] + ":Q[0-9]+[ ?*+;]")
+                re.compile("(?:^| |\(|\[)" + self._namespaces[self._namespace_entities] + ":Q[0-9]+[ ?*+;,.)\]]")
 
             self._prop_direct_full_pattern = re.compile("<" + self._namespace_direct_prop + "P[0-9]+" + ">")
             self._prop_direct_prefixed_pattern = None if self._namespace_direct_prop not in self._namespaces else \
-                re.compile("(?:^| )" + self._namespaces[self._namespace_direct_prop] + ":P[0-9]+[ ?*+;]")
+                re.compile("(?:^| |\(|\[)" + self._namespaces[self._namespace_direct_prop] + ":P[0-9]+[ ?*+;,.)\]]")
 
             self._prop_indirect_full_pattern = re.compile("<" + self._namespace_indirect_prop + "P[0-9]+" + ">")
             self._prop_indirect_prefixed_pattern = None if self._namespace_indirect_prop not in self._namespaces else \
-                re.compile("(?:^| )" + self._namespaces[self._namespace_indirect_prop] + ":P[0-9]+[ ?*+;]")
+                re.compile("(?:^| |\(|\[)" + self._namespaces[self._namespace_indirect_prop] + ":P[0-9]+[ ?*+;,.)\]]")
 
     def _look_for_namespaces(self):
         if self._namespaces is None:
