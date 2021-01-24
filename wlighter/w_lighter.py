@@ -1,13 +1,18 @@
 import re
 import requests
 
+####### CONSTS
+
+SHEXC_FORMAT = "shexc"
+TURTLE_FORMAT = "turtle"
+
+###### PRIVATE MEMBERS
+
 _PROP_DIRECT = "http://www.wikidata.org/prop/direct/"
 _PROP_INDIRECT = "http://www.wikidata.org/prop/"
 _ENTITY = "http://www.wikidata.org/entity/"
 # _PROP_INDIRECT_STATEMENT = "http://www.wikidata.org/prop/statement/"
 
-_SHEXC_FORMAT = "shexc"
-_TURTLE_FORMAT = "turtle"
 
 
 ##### PARSERS
@@ -254,7 +259,7 @@ class RawCommentsFormatter(BaseFormater):
 
 class WLighter(object):
 
-    def __init__(self, raw_input=None, file_input=None, format=_SHEXC_FORMAT, languages=None,
+    def __init__(self, raw_input=None, file_input=None, format=SHEXC_FORMAT, languages=None,
                  generate_rdfs_comments=False, mode_column_aligned=True):
         self._raw_input = raw_input
         self._file_input = file_input
@@ -465,10 +470,10 @@ class WLighter(object):
                 self._namespaces[a_namespace] = a_prefix
 
     def _choose_parser(self):
-        if self._format == _SHEXC_FORMAT:
+        if self._format == SHEXC_FORMAT:
             return ShExCToyParser(raw_input=self._raw_input,
                                   file_input=self._file_input)
-        elif self._format == _TURTLE_FORMAT:
+        elif self._format == TURTLE_FORMAT:
             return TurtleToyParser(raw_input=self._raw_input,
                                    file_input=self._file_input)
         raise ValueError("Unsupported format: " + self._format)
