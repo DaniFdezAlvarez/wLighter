@@ -8,7 +8,7 @@ setup(
   author = 'Daniel Fernandez-Alvarez',        
   author_email = 'danifdezalvarez@gmail.com',    
   url = 'https://github.com/DaniFdezAlvarez/wLighter', 
-  download_url = 'https://github.com/DaniFdezAlvarez/wLighter/tarball/1.0.0',  
+  download_url = 'https://github.com/DaniFdezAlvarez/wLighter/archive/1.0.0.tar.gz',  
   keywords = ['wikidata', 'annotation', 'properties', 'entities', 'rdf', 'shex'],   
   install_requires=[         
           'requests'
@@ -16,7 +16,6 @@ setup(
   classifiers=[
     'Development Status :: 4 - Beta',     
     'Intended Audience :: Developers',      
-    'Topic :: Software Development :: Build Tools', 
     'Programming Language :: Python :: 3'     
   ],
 )
