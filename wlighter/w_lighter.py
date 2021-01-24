@@ -261,6 +261,18 @@ class WLighter(object):
 
     def __init__(self, raw_input=None, file_input=None, format=SHEXC_FORMAT, languages=None,
                  generate_rdfs_comments=False, mode_column_aligned=True):
+
+        """
+
+        :param raw_input: provide here the content to be annotated as a regular str
+        :param file_input: provide here some path file where the content to be annotated is placed
+        :param format: choose between ShExC or turtle. Use the constS SHEXC_FORMAT or TURTLE_FORMAT
+        :param languages: list with sorted preferredn languages. ["en"] will be used if no value is provided
+        :param generate_rdfs_comments: se to True to generate rdfs:comments with "//" instead of regular comments with "#"
+        :param mode_column_aligned: by default, all the comments start in the same column. This can be ugly in case of
+                having too large files. Set this param to False to place the comments a fixed ammount of spaces far
+                from its line
+        """
         self._raw_input = raw_input
         self._file_input = file_input
         self._format = format
@@ -292,16 +304,37 @@ class WLighter(object):
         self._ids_dict = {}
 
     def annotate_entities(self, out_file, string_return):
+        """
+        It annotates just entities
+
+        :param out_file: path file to write the results
+        :param string_return: set to True to make this method return the results as an str
+        :return:
+        """
         return self._base_annotate(out_file=out_file,
                                    string_return=string_return,
                                    look_for_mentions_func=self._look_for_entity_mentions)
 
     def annotate_properties(self, out_file=None, string_return=True):
+        """
+        It annotates just properties
+
+        :param out_file: path file to write the results
+        :param string_return: set to True to make this method return the results as an str
+        :return:
+        """
         return self._base_annotate(out_file=out_file,
                                    string_return=string_return,
                                    look_for_mentions_func=self._look_for_prop_mentions)
 
     def annotate_all(self, out_file=None, string_return=True):
+        """
+        It annotates both entities and properties
+
+        :param out_file: path file to write the results
+        :param string_return: set to True to make this method return the results as an str
+        :return:
+        """
         return self._base_annotate(out_file=out_file,
                                    string_return=string_return,
                                    look_for_mentions_func=self._look_for_all_mentions)
