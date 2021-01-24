@@ -100,18 +100,20 @@ class ShExCToyParser(AbstractParser):
 ######## FORMATTERS
 
 _ARROW = " --> "
+_SEP_SPACES = "    "
 
 
 class BaseFormater(object):
 
     def __init__(self, out_file, string_return, parser, line_mentions_dict, chars_till_comment,
-                 ids_dict):
+                 ids_dict, mode_column_aligned):
         self._out_file = out_file
         self._string_return = string_return
         self._parser = parser
         self._line_mentions_dict = line_mentions_dict
         self._chars_till_comment = chars_till_comment
         self._ids_dict = ids_dict
+        self._mode_column_aligned = mode_column_aligned
 
         self._accumulated_result = None
         self._out_stream = None
@@ -175,11 +177,14 @@ class BaseFormater(object):
         if self._string_return:
             return "\n".join(self._accumulated_result)
 
+    def _propper_amount_of_spaces(self, line_length):
+        if self._mode_column_aligned:
+            return " " * (self._chars_till_comment - line_length)
+        else:
+            return _SEP_SPACES
+
     def _add_comments_to_line(self, line, comments):
         raise NotImplementedError()
-
-    def _propper_amount_of_spaces(self, line_length):
-        return " " * (self._chars_till_comment - line_length)
 
 
 _RDFS_NAMESPACE = "http://www.w3.org/2000/01/rdf-schema#"
@@ -189,8 +194,14 @@ class RdfsCommentFormatter(BaseFormater):
 
     def __init__(self, out_file, string_return, parser,
                  line_mentions_dict, chars_till_comment, ids_dict,
-                 namespaces_dict):
-        super().__init__(out_file, string_return, parser, line_mentions_dict, chars_till_comment, ids_dict)
+                 namespaces_dict, mode_column_aligned):
+        super().__init__(out_file=out_file,
+                         string_return=string_return,
+                         parser=parser,
+                         line_mentions_dict=line_mentions_dict,
+                         chars_till_comment=chars_till_comment,
+                         ids_dict=ids_dict,
+                         mode_column_aligned=mode_column_aligned)
 
         self._rdfs_prefix = None
         self._added_rdfs = False
@@ -227,8 +238,15 @@ class RdfsCommentFormatter(BaseFormater):
 
 class RawCommentsFormatter(BaseFormater):
 
-    def __init__(self, out_file, string_return, parser, line_mentions_dict, chars_till_comment, ids_dict):
-        super().__init__(out_file, string_return, parser, line_mentions_dict, chars_till_comment, ids_dict)
+    def __init__(self, out_file, string_return, parser, line_mentions_dict,
+                 chars_till_comment, ids_dict, mode_column_aligned):
+        super().__init__(out_file=out_file,
+                         string_return=string_return,
+                         parser=parser,
+                         line_mentions_dict=line_mentions_dict,
+                         chars_till_comment=chars_till_comment,
+                         ids_dict=ids_dict,
+                         mode_column_aligned=mode_column_aligned)
 
     def _add_comments_to_line(self, line, comments):
         return line + self._propper_amount_of_spaces(len(line)) + "# " + " ; ".join(comments)
@@ -237,12 +255,13 @@ class RawCommentsFormatter(BaseFormater):
 class WLighter(object):
 
     def __init__(self, raw_input=None, file_input=None, format=_SHEXC_FORMAT, languages=None,
-                 generate_rdfs_comments=False):
+                 generate_rdfs_comments=False, mode_column_aligned=True):
         self._raw_input = raw_input
         self._file_input = file_input
         self._format = format
         self._languages = ["en"] if languages is None else languages
         self._generate_rdfs_comments = generate_rdfs_comments
+        self._mode_column_aligned = mode_column_aligned
 
         self._parser = self._choose_parser()
         self._formatter = None  # Will be Chosen later
@@ -310,14 +329,16 @@ class WLighter(object):
                                                    line_mentions_dict=self._line_mentions_dict,
                                                    chars_till_comment=max_length,
                                                    ids_dict=self._ids_dict,
-                                                   namespaces_dict=self._namespaces)
+                                                   namespaces_dict=self._namespaces,
+                                                   mode_column_aligned=self._mode_column_aligned)
         else:
             self._formatter = RawCommentsFormatter(out_file=out_file,
                                                    string_return=string_return,
                                                    parser=self._parser,
                                                    line_mentions_dict=self._line_mentions_dict,
                                                    chars_till_comment=max_length,
-                                                   ids_dict=self._ids_dict)
+                                                   ids_dict=self._ids_dict,
+                                                   mode_column_aligned=self._mode_column_aligned)
         self._formatter.set_up()
 
     def _solve_mentions(self):
