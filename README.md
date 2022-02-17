@@ -20,7 +20,7 @@ Please, contact the author or feel free to add an issue to this repository if yo
 
 You can install wLighter using pip. Execute the following command:
 
-    $ pip install shexer
+    $ pip install wlighter
 
 If you prefer to use wLighter by source with git clone, ensure you execute it in an enviroment with the dependencies listed in requirements.txt.
 You can install those dependencies by using the following command:
